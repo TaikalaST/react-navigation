@@ -504,10 +504,21 @@ export function createPathConfigForStaticNavigation(
   const createPathConfigForTree = (
     t: TreeForPathConfig,
     o: { initialRouteName?: string } | undefined,
-    // If a screen is a leaf node, but inside a screen with path,
-    // It should not be used for initial detection
     skipInitialDetection: boolean
   ) => {
+    // Create a combined array of screens and groups to process initialRouteName correctly
+    const items = [
+      ...(t.config.screens
+        ? [{ type: 'screens', items: t.config.screens }]
+        : []),
+      ...(t.config.groups
+        ? Object.entries(t.config.groups).map(([_key, group]) => ({
+            type: 'group',
+            items: group.screens,
+          }))
+        : []),
+    ];
+
     const createPathConfigForScreens = (
       screens: StaticConfigScreens<
         ParamListBase,
@@ -520,8 +531,6 @@ export function createPathConfigForStaticNavigation(
     ) => {
       return Object.fromEntries(
         Object.entries(screens)
-          // Re-order to move the initial route to the front
-          // This way we can detect the initial route correctly
           .sort(([a], [b]) => {
             if (a === initialRouteName) {
               return -1;
@@ -581,13 +590,10 @@ export function createPathConfigForStaticNavigation(
             if (
               auto &&
               !screenConfig.screens &&
-              // Skip generating path for screens that specify linking config as `undefined` or `null` explicitly
               !('linking' in item && item.linking == null)
             ) {
               if (screenConfig.path != null) {
                 if (!skipInitialDetection && screenConfig.path === '') {
-                  // We encounter a leaf screen with empty path,
-                  // Clear the initial screen config as it's not needed anymore
                   initialScreenConfig = undefined;
                 }
               } else {
@@ -610,31 +616,26 @@ export function createPathConfigForStaticNavigation(
 
     const screens = {};
 
-    // Loop through the config to find screens and groups
-    // So we add the screens and groups in the same order as they are defined
-    for (const key in t.config) {
-      if (key === 'screens' && t.config.screens) {
+    // Process all items (screens and groups) to ensure initialRouteName is considered
+    items.forEach(({ type, items }) => {
+      if (type === 'screens') {
         Object.assign(
           screens,
           createPathConfigForScreens(
-            t.config.screens,
+            items,
+            o?.initialRouteName ?? t.config.initialRouteName
+          )
+        );
+      } else if (type === 'group') {
+        Object.assign(
+          screens,
+          createPathConfigForScreens(
+            items,
             o?.initialRouteName ?? t.config.initialRouteName
           )
         );
       }
-
-      if (key === 'groups' && t.config.groups) {
-        Object.entries(t.config.groups).forEach(([, group]) => {
-          Object.assign(
-            screens,
-            createPathConfigForScreens(
-              group.screens,
-              o?.initialRouteName ?? t.config.initialRouteName
-            )
-          );
-        });
-      }
-    }
+    });
 
     if (Object.keys(screens).length === 0) {
       return undefined;
